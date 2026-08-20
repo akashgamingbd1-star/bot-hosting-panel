@@ -58,7 +58,6 @@ HTML_TEMPLATE = """
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
         .logo-icon { background: white; color: #4a3b8d; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; }
         
-        /* Premium Header Banner */
         .premium-banner { background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 16px; padding: 20px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
         .premium-banner h2 { font-size: 20px; font-weight: 800; letter-spacing: 1px; color: #fff; margin-bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .premium-banner p { font-size: 12px; color: #e0e7ff; opacity: 0.9; }
@@ -103,13 +102,11 @@ HTML_TEMPLATE = """
         <i class="fa-solid fa-right-from-bracket" style="font-size: 20px; cursor: pointer;" onclick="location.reload()"></i>
     </div>
 
-    <!-- Premium Banner -->
     <div class="premium-banner">
         <h2><i class="fa-solid fa-crown"></i> PREMIUM HOSTING PANEL</h2>
         <p>Manage and Edit Your Python Telegram Bots Live</p>
     </div>
 
-    <!-- Upload Card -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload New Bot</div>
         
@@ -130,7 +127,6 @@ HTML_TEMPLATE = """
         </form>
     </div>
 
-    <!-- Managed Bots List -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-server"></i> Managed Bots List</div>
         
@@ -159,7 +155,6 @@ HTML_TEMPLATE = """
                         <a href="/stop/{{ bot['id'] }}" class="btn-act btn-stop-bot">Stop</a>
                     {% else %}
                         <a href="/start/{{ bot['id'] }}" class="btn-act btn-run">Run</a>
-                    {% else %}
                     {% endif %}
                     <a href="/edit/{{ bot['id'] }}" class="btn-act btn-edit">Details</a>
                     <a href="/edit_code/{{ bot['id'] }}" class="btn-act btn-code-edit">Edit Code</a>
@@ -189,7 +184,6 @@ function updateLabel(input, labelId, defaultText) {
 </body>
 </html>
 """
-
 EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -224,7 +218,7 @@ EDIT_TEMPLATE = """
 </body>
 </html>
 """
-# Full Screen Code Editor with Save Button at the Top Header
+
 CODE_EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -451,7 +445,6 @@ def edit_code(bot_id):
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(new_code)
         
-        # Auto restart bot if it was running previously
         if bot['status'] == 'Running':
             stop_bot(bot_id)
             
