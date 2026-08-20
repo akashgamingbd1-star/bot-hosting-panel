@@ -58,10 +58,10 @@ HTML_TEMPLATE = """
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
         .logo-icon { background: white; color: #4a3b8d; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; }
         
-        .profile-card { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
-        .avatar { width: 60px; height: 60px; border-radius: 50%; background: #ccc; }
-        .user-info h2 { font-size: 20px; font-weight: 700; }
-        .user-info p { color: #bcaaa4; font-size: 14px; }
+        /* Premium Header Banner */
+        .premium-banner { background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 16px; padding: 20px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+        .premium-banner h2 { font-size: 20px; font-weight: 800; letter-spacing: 1px; color: #fff; margin-bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .premium-banner p { font-size: 12px; color: #e0e7ff; opacity: 0.9; }
 
         .card { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.15); }
         .card-title { font-size: 18px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #f3e8ff; }
@@ -82,11 +82,12 @@ HTML_TEMPLATE = """
         .status-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #34d399; }
         .status-stopped { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #f87171; }
 
-        .bot-actions { display: flex; gap: 6px; margin-top: 12px; }
-        .btn-act { flex: 1; padding: 8px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-align: center; text-decoration: none; display: inline-block; }
+        .bot-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+        .btn-act { flex: 1; min-width: 70px; padding: 8px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-align: center; text-decoration: none; display: inline-block; }
         .btn-run { background: #10b981; color: white; }
         .btn-stop-bot { background: #f59e0b; color: white; }
         .btn-edit { background: #3b82f6; color: white; }
+        .btn-code-edit { background: #8b5cf6; color: white; }
         .btn-del { background: #ef4444; color: white; flex: 0.5; }
 
         .console-box { background: #0c0a1d; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; color: #33ff77; max-height: 80px; overflow-y: auto; margin-top: 8px; white-space: pre-wrap; }
@@ -102,13 +103,10 @@ HTML_TEMPLATE = """
         <i class="fa-solid fa-right-from-bracket" style="font-size: 20px; cursor: pointer;" onclick="location.reload()"></i>
     </div>
 
-    <div class="profile-card">
-        <div class="avatar" style="background-image: url('https://via.placeholder.com/60'); background-size: cover;"></div>
-        <div class="user-info">
-            <p>Hello,</p>
-            <h2>AKASH DANGEOWNER</h2>
-            <p>akashdangerowner@gmail.com</p>
-        </div>
+    <!-- Premium Banner replacing Profile -->
+    <div class="premium-banner">
+        <h2><i class="fa-solid fa-crown"></i> PREMIUM HOSTING PANEL</h2>
+        <p>Manage and Edit Your Python Telegram Bots Live</p>
     </div>
 
     <!-- Upload Card -->
@@ -162,7 +160,8 @@ HTML_TEMPLATE = """
                     {% else %}
                         <a href="/start/{{ bot['id'] }}" class="btn-act btn-run">Run</a>
                     {% endif %}
-                    <a href="/edit/{{ bot['id'] }}" class="btn-act btn-edit">Edit</a>
+                    <a href="/edit/{{ bot['id'] }}" class="btn-act btn-edit">Details</a>
+                    <a href="/edit_code/{{ bot['id'] }}" class="btn-act btn-code-edit">Edit Code</a>
                     <a href="/delete/{{ bot['id'] }}" class="btn-act btn-del" onclick="return confirm('এই বটটি ডিলিট করতে চান?')">Delete</a>
                 </div>
             </div>
@@ -196,7 +195,7 @@ EDIT_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Bot - Hosting Panel</title>
+    <title>Edit Bot Details - Hosting Panel</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
@@ -217,9 +216,42 @@ EDIT_TEMPLATE = """
             <label style="font-size: 13px; color: #bcaaa4;">Main File Name (.py):</label>
             <input type="text" name="main_file" class="input-box" value="{{ bot['main_file'] }}" required style="margin-top: 5px;">
             
-            <button type="submit" class="btn-save">Update Database</button>
+            <button type="submit" class="btn-save">Update Details</button>
         </form>
         <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to Dashboard</a>
+    </div>
+</body>
+</html>
+"""
+
+CODE_EDIT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Bot Code - Hosting Panel</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background: linear-gradient(135deg, #4a3b8d 0%, #2b1f5c 100%); color: white; min-height: 100vh; padding: 20px; }
+        .container { max-width: 700px; margin: 0 auto; }
+        .card { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.15); }
+        .code-area { width: 100%; height: 350px; background: #0c0a1d; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px; padding: 15px; color: #33ff77; font-family: monospace; font-size: 13px; resize: vertical; outline: none; margin-bottom: 15px; }
+        .btn-save { width: 100%; padding: 12px; background: #10b981; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; font-size: 15px; }
+        .back-link { display: inline-block; margin-top: 15px; color: #f3e8ff; text-decoration: none; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h3 style="margin-bottom: 15px;"><i class="fa-solid fa-code"></i> Edit Code for: {{ bot['bot_name'] }}</h3>
+            <form method="POST">
+                <textarea name="bot_code" class="code-area" required>{{ code_content }}</textarea>
+                <button type="submit" class="btn-save">Save & Update Code</button>
+            </form>
+            <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to Dashboard</a>
+        </div>
     </div>
 </body>
 </html>
@@ -365,6 +397,32 @@ def edit_bot(bot_id):
         return redirect(url_for('index'))
         
     return render_template_string(EDIT_TEMPLATE, bot=bot)
+
+@app.route('/edit_code/<int:bot_id>', methods=['GET', 'POST'])
+def edit_code(bot_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
+    bot = cursor.fetchone()
+    conn.close()
+    
+    if not bot:
+        return redirect(url_for('index'))
+        
+    file_path = os.path.join(bot['folder_path'], bot['main_file'])
+    
+    if request.method == 'POST':
+        new_code = request.form.get('bot_code')
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(new_code)
+        return redirect(url_for('index'))
+        
+    code_content = ""
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            code_content = f.read()
+            
+    return render_template_string(CODE_EDIT_TEMPLATE, bot=bot, code_content=code_content)
 
 @app.route('/delete/<int:bot_id>')
 def delete_bot(bot_id):
