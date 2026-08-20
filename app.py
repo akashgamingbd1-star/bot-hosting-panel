@@ -1,3 +1,4 @@
+ 
 import os
 import sys
 import sqlite3
@@ -103,7 +104,7 @@ HTML_TEMPLATE = """
         <i class="fa-solid fa-right-from-bracket" style="font-size: 20px; cursor: pointer;" onclick="location.reload()"></i>
     </div>
 
-    <!-- Premium Banner replacing Profile -->
+    <!-- Premium Banner -->
     <div class="premium-banner">
         <h2><i class="fa-solid fa-crown"></i> PREMIUM HOSTING PANEL</h2>
         <p>Manage and Edit Your Python Telegram Bots Live</p>
@@ -223,36 +224,72 @@ EDIT_TEMPLATE = """
 </body>
 </html>
 """
-
+# Large Full-Screen Code Editor with Undo/Reset capability
 CODE_EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Bot Code - Hosting Panel</title>
+    <title>Full Code Editor - Hosting Panel</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
-        body { background: linear-gradient(135deg, #4a3b8d 0%, #2b1f5c 100%); color: white; min-height: 100vh; padding: 20px; }
-        .container { max-width: 700px; margin: 0 auto; }
-        .card { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.15); }
-        .code-area { width: 100%; height: 350px; background: #0c0a1d; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px; padding: 15px; color: #33ff77; font-family: monospace; font-size: 13px; resize: vertical; outline: none; margin-bottom: 15px; }
-        .btn-save { width: 100%; padding: 12px; background: #10b981; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; font-size: 15px; }
-        .back-link { display: inline-block; margin-top: 15px; color: #f3e8ff; text-decoration: none; font-size: 13px; }
+        body { background: #1a153b; color: white; min-height: 100vh; display: flex; flex-direction: column; }
+        
+        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #261e57; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .editor-title { font-size: 15px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 8px; }
+        
+        .action-btns { display: flex; gap: 10px; }
+        .btn-top { padding: 6px 14px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 5px; }
+        .btn-back { background: #4b5563; }
+        .btn-reset { background: #d97706; }
+        .btn-save { background: #10b981; }
+
+        .editor-body { flex: 1; display: flex; flex-direction: column; padding: 10px; }
+        
+        /* Full screen large code editor box */
+        .code-area { 
+            width: 100%; 
+            flex: 1; 
+            min-height: 75vh; 
+            background: #0f0c24; 
+            border: 1px solid rgba(255, 255, 255, 0.2); 
+            border-radius: 12px; 
+            padding: 15px; 
+            color: #34d399; 
+            font-family: 'Courier New', Courier, monospace; 
+            font-size: 14px; 
+            line-height: 1.5;
+            resize: none; 
+            outline: none; 
+            tab-size: 4;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h3 style="margin-bottom: 15px;"><i class="fa-solid fa-code"></i> Edit Code for: {{ bot['bot_name'] }}</h3>
-            <form method="POST">
-                <textarea name="bot_code" class="code-area" required>{{ code_content }}</textarea>
-                <button type="submit" class="btn-save">Save & Update Code</button>
-            </form>
-            <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to Dashboard</a>
+    <div class="editor-header">
+        <div class="editor-title"><i class="fa-solid fa-code"></i> {{ bot['main_file'] }}</div>
+        <div class="action-btns">
+            <button type="button" class="btn-top btn-reset" onclick="resetCode()"><i class="fa-solid fa-rotate-left"></i> Revert</button>
+            <a href="/" class="btn-top btn-back"><i class="fa-solid fa-arrow-left"></i> Back</a>
         </div>
     </div>
+
+    <form method="POST" class="editor-body">
+        <!-- Large full-screen textarea with original content saved for reset -->
+        <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false">{{ code_content }}</textarea>
+        <button type="submit" class="btn-top btn-save" style="margin-top: 10px; width: 100%; padding: 12px; justify-content: center; font-size: 15px;"><i class="fa-solid fa-floppy-disk"></i> Save & Restart Bot Live</button>
+    </form>
+
+    <script>
+        const originalCode = document.getElementById('codeArea').value;
+        function resetCode() {
+            if(confirm('সব পরিবর্তন বাতিল করে আগের কোডে ফিরে যেতে চান?')) {
+                document.getElementById('codeArea').value = originalCode;
+            }
+        }
+    </script>
 </body>
 </html>
 """
@@ -415,6 +452,11 @@ def edit_code(bot_id):
         new_code = request.form.get('bot_code')
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(new_code)
+        
+        # Auto restart bot if it was running previously
+        if bot['status'] == 'Running':
+            stop_bot(bot_id)
+            
         return redirect(url_for('index'))
         
     code_content = ""
