@@ -225,13 +225,13 @@ CODE_EDIT_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Full Code Editor - Hosting Panel</title>
+    <title>MT Style Code Editor - Hosting Panel</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
-        body { background: #1a153b; color: white; min-height: 100vh; display: flex; flex-direction: column; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+        body { background: #120f29; color: white; min-height: 100vh; display: flex; flex-direction: column; }
         
-        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #261e57; padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px; }
+        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #1f1a42; padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px; font-family: 'Segoe UI', sans-serif; }
         .editor-title { font-size: 14px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 6px; }
         
         .action-btns { display: flex; gap: 8px; }
@@ -240,28 +240,51 @@ CODE_EDIT_TEMPLATE = """
         .btn-reset { background: #d97706; }
         .btn-save { background: #10b981; }
 
-        .editor-body { flex: 1; display: flex; flex-direction: column; padding: 10px; }
-        
+        /* MT Manager Style Editor Layout */
+        .editor-container {
+            display: flex;
+            flex: 1;
+            background: #0c091f;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            margin: 10px;
+            border-radius: 10px;
+            overflow: hidden;
+            min-height: 80vh;
+        }
+
+        .line-numbers {
+            background: #171336;
+            color: #8b85b6;
+            padding: 15px 8px;
+            text-align: right;
+            font-size: 13px;
+            line-height: 1.5;
+            user-select: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 45px;
+        }
+
         .code-area { 
             width: 100%; 
             flex: 1; 
-            min-height: 82vh; 
-            background: #0f0c24; 
-            border: 1px solid rgba(255, 255, 255, 0.2); 
-            border-radius: 12px; 
+            background: transparent; 
+            border: none; 
             padding: 15px; 
             color: #34d399; 
             font-family: 'Courier New', Courier, monospace; 
-            font-size: 14px; 
+            font-size: 13px; 
             line-height: 1.5;
             resize: none; 
             outline: none; 
+            white-space: pre;
+            overflow-wrap: normal;
+            overflow-x: auto;
             tab-size: 4;
         }
     </style>
 </head>
 <body>
-    <form method="POST" class="editor-body">
+    <form method="POST" style="display: flex; flex-direction: column; flex: 1;">
         <div class="editor-header">
             <div class="editor-title"><i class="fa-solid fa-code"></i> {{ bot['main_file'] }}</div>
             <div class="action-btns">
@@ -271,14 +294,37 @@ CODE_EDIT_TEMPLATE = """
             </div>
         </div>
 
-        <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false">{{ code_content }}</textarea>
+        <div class="editor-container">
+            <div id="lineNumbers" class="line-numbers">1</div>
+            <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false" oninput="updateLines()" onscroll="syncScroll()">{{ code_content }}</textarea>
+        </div>
     </form>
 
     <script>
-        const originalCode = document.getElementById('codeArea').value;
+        const codeArea = document.getElementById('codeArea');
+        const lineNumbers = document.getElementById('lineNumbers');
+        const originalCode = codeArea.value;
+
+        function updateLines() {
+            const lines = codeArea.value.split('\\n').length;
+            let numbersStr = '';
+            for (let i = 1; i <= lines; i++) {
+                numbersStr += i + '<br>';
+            }
+            lineNumbers.innerHTML = numbersStr;
+        }
+
+        function syncScroll() {
+            lineNumbers.scrollTop = codeArea.scrollTop;
+        }
+
+        codeArea.addEventListener('scroll', syncScroll);
+        window.onload = updateLines;
+
         function resetCode() {
             if(confirm('সব পরিবর্তন বাতিল করে আগের কোডে ফিরে যেতে চান?')) {
-                document.getElementById('codeArea').value = originalCode;
+                codeArea.value = originalCode;
+                updateLines();
             }
         }
     </script>
