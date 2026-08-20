@@ -190,7 +190,6 @@ function updateLabel(input, labelId, defaultText) {
 </html>
 """
 
-# Edit Template for modifying bot details
 EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -254,9 +253,7 @@ def index():
     for bot in db_bots:
         bot_dict = dict(bot)
         if bot_dict['status'] == 'Running' and bot_dict['id'] in active_processes:
-            # Check if process is still alive
             if active_processes[bot_dict['id']]['process'].poll() is not None:
-                # Process died unexpectedly
                 cursor.execute('UPDATE bots SET status = "Stopped", start_timestamp = 0 WHERE id = ?', (bot_dict['id'],))
                 conn.commit()
                 bot_dict['status'] = 'Stopped'
@@ -391,5 +388,5 @@ def delete_bot(bot_id):
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    port = int(os.environ.format('PORT', 5000))
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
