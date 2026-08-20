@@ -184,7 +184,6 @@ function updateLabel(input, labelId, defaultText) {
 </body>
 </html>
 """
-
 EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -219,118 +218,73 @@ EDIT_TEMPLATE = """
 </body>
 </html>
 """
+
 CODE_EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro Code Editor - Hosting Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT Style Code Editor - Hosting Panel</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
-        body { background: #120f29; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        body { background: #120f29; color: white; min-height: 100vh; display: flex; flex-direction: column; }
         
-        .editor-header { 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            z-index: 1000; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            background: #1f1a42; 
-            padding: 8px 12px; 
-            border-bottom: 1px solid rgba(255,255,255,0.15); 
-            font-family: 'Segoe UI', sans-serif; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-        .editor-title { font-size: 13px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 5px; }
+        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #1f1a42; padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px; font-family: 'Segoe UI', sans-serif; }
+        .editor-title { font-size: 14px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 6px; }
         
-        .action-btns { display: flex; gap: 6px; }
-        .btn-top { padding: 6px 10px; border-radius: 6px; border: none; font-weight: bold; font-size: 11px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 4px; }
+        .action-btns { display: flex; gap: 8px; }
+        .btn-top { padding: 8px 12px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 5px; }
         .btn-back { background: #4b5563; }
         .btn-reset { background: #d97706; }
         .btn-save { background: #10b981; }
 
+        /* MT Manager Style Editor Layout */
         .editor-container {
             display: flex;
             flex: 1;
-            background: #1a1635;
+            background: #0c091f;
             border: 1px solid rgba(255, 255, 255, 0.15);
-            margin: 55px 6px 6px 6px;
-            border-radius: 8px;
+            margin: 10px;
+            border-radius: 10px;
             overflow: hidden;
-            height: calc(100vh - 65px);
-            position: relative;
+            min-height: 80vh;
         }
 
         .line-numbers {
-            background: #15112e;
+            background: #171336;
             color: #8b85b6;
-            padding: 12px 6px;
+            padding: 15px 8px;
             text-align: right;
-            font-size: 12px;
+            font-size: 13px;
             line-height: 1.5;
             user-select: none;
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
-            min-width: 38px;
-            overflow: hidden;
-        }
-
-        .editor-wrapper {
-            position: relative;
-            flex: 1;
-            height: 100%;
-            overflow: auto;
-        }
-
-        #highlighting {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            padding: 12px;
-            pointer-events: none;
-            font-size: 12px;
-            line-height: 1.5;
-            white-space: pre;
-            tab-size: 4;
-            margin: 0;
-            background: transparent !important;
-        }
-        #highlighting code {
-            font-family: 'Courier New', Courier, monospace !important;
-            background: transparent !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 45px;
         }
 
         .code-area { 
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 100%; 
-            height: 100%; 
+            flex: 1; 
             background: transparent; 
             border: none; 
-            padding: 12px; 
-            color: transparent; 
-            caret-color: white;
+            padding: 15px; 
+            color: #34d399; 
             font-family: 'Courier New', Courier, monospace; 
-            font-size: 12px; 
+            font-size: 13px; 
             line-height: 1.5;
             resize: none; 
             outline: none; 
             white-space: pre;
+            overflow-wrap: normal;
+            overflow-x: auto;
             tab-size: 4;
-            z-index: 2;
         }
     </style>
 </head>
 <body>
-    <form method="POST" style="display: flex; flex-direction: column; height: 100vh;">
+    <form method="POST" style="display: flex; flex-direction: column; flex: 1;">
         <div class="editor-header">
             <div class="editor-title"><i class="fa-solid fa-code"></i> {{ bot['main_file'] }}</div>
             <div class="action-btns">
@@ -342,21 +296,13 @@ CODE_EDIT_TEMPLATE = """
 
         <div class="editor-container">
             <div id="lineNumbers" class="line-numbers">1</div>
-            <div class="editor-wrapper" id="editorWrapper">
-                <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false" oninput="handleInput()" onscroll="syncScroll()">{{ code_content }}</textarea>
-                <pre id="highlighting" aria-hidden="true"><code class="language-python" id="highlighting-content"></code></pre>
-            </div>
+            <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false" oninput="updateLines()" onscroll="syncScroll()">{{ code_content }}</textarea>
         </div>
     </form>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-
     <script>
         const codeArea = document.getElementById('codeArea');
-        const highlightingContent = document.getElementById('highlighting-content');
         const lineNumbers = document.getElementById('lineNumbers');
-        const editorWrapper = document.getElementById('editorWrapper');
         const originalCode = codeArea.value;
 
         function updateLines() {
@@ -368,37 +314,17 @@ CODE_EDIT_TEMPLATE = """
             lineNumbers.innerHTML = numbersStr;
         }
 
-        function updateHighlighting() {
-            let text = codeArea.value;
-            if(text[text.length-1] === "\\n") {
-                text += " ";
-            }
-            highlightingContent.textContent = text;
-            Prism.highlightElement(highlightingContent);
-        }
-
-        function handleInput() {
-            updateLines();
-            updateHighlighting();
-        }
-
         function syncScroll() {
-            lineNumbers.scrollTop = editorWrapper.scrollTop;
-            document.getElementById('highlighting').style.transform = `translate(-${editorWrapper.scrollLeft}px, -${editorWrapper.scrollTop}px)`;
+            lineNumbers.scrollTop = codeArea.scrollTop;
         }
 
-        editorWrapper.addEventListener('scroll', syncScroll);
-
-        window.onload = function() {
-            updateLines();
-            updateHighlighting();
-        };
+        codeArea.addEventListener('scroll', syncScroll);
+        window.onload = updateLines;
 
         function resetCode() {
             if(confirm('সব পরিবর্তন বাতিল করে আগের কোডে ফিরে যেতে চান?')) {
                 codeArea.value = originalCode;
                 updateLines();
-                updateHighlighting();
             }
         }
     </script>
@@ -601,4 +527,3 @@ def delete_bot(bot_id):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-          
