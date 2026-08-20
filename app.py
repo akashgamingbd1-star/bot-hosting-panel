@@ -2,6 +2,7 @@ import os
 import sys
 import sqlite3
 import subprocess
+import time
 from flask import Flask, render_template_string, request, redirect, url_for
 
 app = Flask(__name__)
@@ -13,7 +14,7 @@ DATABASE = os.path.join(BASE_DIR, 'platform.db')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Active processes dictionary to track running bots: {bot_id: subprocess_object}
+# Active processes dictionary: {bot_id: {'process': proc_obj, 'start_time': timestamp}}
 active_processes = {}
 
 def get_db():
@@ -31,7 +32,8 @@ def init_db():
             folder_path TEXT NOT NULL,
             main_file TEXT NOT NULL,
             status TEXT DEFAULT 'Stopped',
-            logs TEXT DEFAULT 'Ready to run...'
+            logs TEXT DEFAULT 'Ready to run...',
+            start_timestamp REAL DEFAULT 0
         )
     ''')
     conn.commit()
@@ -72,7 +74,6 @@ HTML_TEMPLATE = """
         .btn-deploy { width: 100%; padding: 12px; background: #6d28d9; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 15px; color: white; margin-top: 5px; }
         .btn-deploy:hover { background: #5b21b6; }
 
-        /* Bot Item Card style */
         .bot-card { background: rgba(18, 11, 41, 0.7); border-radius: 15px; padding: 15px; margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.1); }
         .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .bot-title { font-size: 16px; font-weight: bold; color: #ffffff; }
@@ -81,11 +82,12 @@ HTML_TEMPLATE = """
         .status-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #34d399; }
         .status-stopped { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #f87171; }
 
-        .bot-actions { display: flex; gap: 8px; margin-top: 12px; }
-        .btn-act { flex: 1; padding: 8px; border-radius: 8px; border: none; font-weight: bold; font-size: 13px; cursor: pointer; text-align: center; text-decoration: none; display: inline-block; }
+        .bot-actions { display: flex; gap: 6px; margin-top: 12px; }
+        .btn-act { flex: 1; padding: 8px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-align: center; text-decoration: none; display: inline-block; }
         .btn-run { background: #10b981; color: white; }
         .btn-stop-bot { background: #f59e0b; color: white; }
-        .btn-del { background: #ef4444; color: white; flex: 0.4; }
+        .btn-edit { background: #3b82f6; color: white; }
+        .btn-del { background: #ef4444; color: white; flex: 0.5; }
 
         .console-box { background: #0c0a1d; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; color: #33ff77; max-height: 80px; overflow-y: auto; margin-top: 8px; white-space: pre-wrap; }
     </style>
@@ -109,7 +111,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- Upload Card for Multiple Bots -->
+    <!-- Upload Card -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload New Bot</div>
         
@@ -130,7 +132,7 @@ HTML_TEMPLATE = """
         </form>
     </div>
 
-    <!-- Saved Bots List (10/20+ bots management) -->
+    <!-- Managed Bots List -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-server"></i> Managed Bots List</div>
         
@@ -148,6 +150,10 @@ HTML_TEMPLATE = """
 
                 <div style="font-size: 12px; color: #bcaaa4;">File: {{ bot['main_file'] }}</div>
                 
+                {% if bot['status'] == 'Running' and bot['uptime_str'] %}
+                    <div style="font-size: 11px; color: #34d399; margin-top: 4px;"><i class="fa-solid fa-clock"></i> Uptime: {{ bot['uptime_str'] }}</div>
+                {% endif %}
+                
                 <div class="console-box">{{ bot['logs'] }}</div>
 
                 <div class="bot-actions">
@@ -156,6 +162,7 @@ HTML_TEMPLATE = """
                     {% else %}
                         <a href="/start/{{ bot['id'] }}" class="btn-act btn-run">Run</a>
                     {% endif %}
+                    <a href="/edit/{{ bot['id'] }}" class="btn-act btn-edit">Edit</a>
                     <a href="/delete/{{ bot['id'] }}" class="btn-act btn-del" onclick="return confirm('এই বটটি ডিলিট করতে চান?')">Delete</a>
                 </div>
             </div>
@@ -183,12 +190,84 @@ function updateLabel(input, labelId, defaultText) {
 </html>
 """
 
+# Edit Template for modifying bot details
+EDIT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Bot - Hosting Panel</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background: linear-gradient(135deg, #4a3b8d 0%, #2b1f5c 100%); color: white; min-height: 100vh; padding: 20px; display: flex; align-items: center; justify-content: center; }
+        .card { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 25px; width: 100%; max-width: 400px; border: 1px solid rgba(255, 255, 255, 0.15); }
+        .input-box { width: 100%; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px; padding: 12px; color: white; margin-bottom: 15px; outline: none; font-size: 14px; }
+        .btn-save { width: 100%; padding: 12px; background: #10b981; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; color: white; font-size: 15px; }
+        .back-link { display: block; text-align: center; margin-top: 15px; color: #f3e8ff; text-decoration: none; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h3 style="margin-bottom: 20px;"><i class="fa-solid fa-pen-to-square"></i> Edit Bot Details</h3>
+        <form method="POST">
+            <label style="font-size: 13px; color: #bcaaa4;">Bot Name:</label>
+            <input type="text" name="bot_name" class="input-box" value="{{ bot['bot_name'] }}" required style="margin-top: 5px;">
+            
+            <label style="font-size: 13px; color: #bcaaa4;">Main File Name (.py):</label>
+            <input type="text" name="main_file" class="input-box" value="{{ bot['main_file'] }}" required style="margin-top: 5px;">
+            
+            <button type="submit" class="btn-save">Update Database</button>
+        </form>
+        <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to Dashboard</a>
+    </div>
+</body>
+</html>
+"""
+
+def format_uptime(start_timestamp):
+    if not start_timestamp:
+        return ""
+    diff = int(time.time() - start_timestamp)
+    days = diff // 86400
+    hours = (diff % 86400) // 3600
+    minutes = (diff % 3600) // 60
+    seconds = diff % 60
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0 or days > 0:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m {seconds}s")
+    return " ".join(parts)
+
 @app.route('/')
 def index():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM bots ORDER BY id DESC')
-    bots = cursor.fetchall()
+    db_bots = cursor.fetchall()
+    
+    bots = []
+    for bot in db_bots:
+        bot_dict = dict(bot)
+        if bot_dict['status'] == 'Running' and bot_dict['id'] in active_processes:
+            # Check if process is still alive
+            if active_processes[bot_dict['id']]['process'].poll() is not None:
+                # Process died unexpectedly
+                cursor.execute('UPDATE bots SET status = "Stopped", start_timestamp = 0 WHERE id = ?', (bot_dict['id'],))
+                conn.commit()
+                bot_dict['status'] = 'Stopped'
+                bot_dict['uptime_str'] = ''
+            else:
+                start_ts = active_processes[bot_dict['id']]['start_time']
+                bot_dict['uptime_str'] = format_uptime(start_ts)
+        else:
+            bot_dict['uptime_str'] = ''
+        bots.append(bot_dict)
+        
     conn.close()
     return render_template_string(HTML_TEMPLATE, bots=bots)
 
@@ -201,8 +280,7 @@ def upload():
     if not bot_file or not bot_file.filename:
         return redirect(url_for('index'))
 
-    # Create unique folder for each bot so they don't clash
-    folder_name = f"bot_{int(os.path.getmtime(UPLOAD_FOLDER))}_{bot_name.replace(' ', '_')}"
+    folder_name = f"bot_{int(time.time())}_{bot_name.replace(' ', '_')}"
     bot_dir = os.path.join(UPLOAD_FOLDER, folder_name)
     os.makedirs(bot_dir, exist_ok=True)
 
@@ -222,11 +300,10 @@ def upload():
         except Exception as e:
             log_msg += f"Install error: {str(e)}\n"
 
-    # Save to SQLite Database
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO bots (bot_name, folder_path, main_file, status, logs) VALUES (?, ?, ?, ?, ?)',
-                   (bot_name, bot_dir, main_filename, 'Stopped', log_msg + "Ready to Run."))
+    cursor.execute('INSERT INTO bots (bot_name, folder_path, main_file, status, logs, start_timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+                   (bot_name, bot_dir, main_filename, 'Stopped', log_msg + "Ready to Run.", 0))
     conn.commit()
     conn.close()
 
@@ -242,16 +319,15 @@ def start_bot(bot_id):
     if bot:
         bot_dir = bot['folder_path']
         main_file = bot['main_file']
-        filepath = os.path.join(bot_dir, main_file)
 
-        if bot_id in active_processes and active_processes[bot_id].poll() is None:
+        if bot_id in active_processes and active_processes[bot_id]['process'].poll() is None:
             pass
         else:
-            # Run the bot in its own directory as a background process
             proc = subprocess.Popen([sys.executable, main_file], cwd=bot_dir)
-            active_processes[bot_id] = proc
+            current_time = time.time()
+            active_processes[bot_id] = {'process': proc, 'start_time': current_time}
 
-            cursor.execute('UPDATE bots SET status = "Running", logs = "Bot is running live!" WHERE id = ?', (bot_id,))
+            cursor.execute('UPDATE bots SET status = "Running", logs = "Bot is running live!", start_timestamp = ? WHERE id = ?', (current_time, bot_id))
             conn.commit()
 
     conn.close()
@@ -260,22 +336,43 @@ def start_bot(bot_id):
 @app.route('/stop/<int:bot_id>')
 def stop_bot(bot_id):
     if bot_id in active_processes:
-        proc = active_processes[bot_id]
-        proc.terminate()
+        active_processes[bot_id]['process'].terminate()
         del active_processes[bot_id]
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('UPDATE bots SET status = "Stopped", logs = "Bot stopped by user." WHERE id = ?', (bot_id,))
+    cursor.execute('UPDATE bots SET status = "Stopped", logs = "Bot stopped by user.", start_timestamp = 0 WHERE id = ?', (bot_id,))
     conn.commit()
     conn.close()
 
     return redirect(url_for('index'))
 
+@app.route('/edit/<int:bot_id>', methods=['GET', 'POST'])
+def edit_bot(bot_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if request.method == 'POST':
+        new_name = request.form.get('bot_name')
+        new_file = request.form.get('main_file')
+        cursor.execute('UPDATE bots SET bot_name = ?, main_file = ? WHERE id = ?', (new_name, new_file, bot_id))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('index'))
+        
+    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
+    bot = cursor.fetchone()
+    conn.close()
+    
+    if not bot:
+        return redirect(url_for('index'))
+        
+    return render_template_string(EDIT_TEMPLATE, bot=bot)
+
 @app.route('/delete/<int:bot_id>')
 def delete_bot(bot_id):
     stop_bot(bot_id)
-    
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('SELECT folder_path FROM bots WHERE id = ?', (bot_id,))
@@ -294,5 +391,5 @@ def delete_bot(bot_id):
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.format('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
