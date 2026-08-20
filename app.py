@@ -1,4 +1,3 @@
- 
 import os
 import sys
 import sqlite3
@@ -160,6 +159,7 @@ HTML_TEMPLATE = """
                         <a href="/stop/{{ bot['id'] }}" class="btn-act btn-stop-bot">Stop</a>
                     {% else %}
                         <a href="/start/{{ bot['id'] }}" class="btn-act btn-run">Run</a>
+                    {% else %}
                     {% endif %}
                     <a href="/edit/{{ bot['id'] }}" class="btn-act btn-edit">Details</a>
                     <a href="/edit_code/{{ bot['id'] }}" class="btn-act btn-code-edit">Edit Code</a>
@@ -224,7 +224,7 @@ EDIT_TEMPLATE = """
 </body>
 </html>
 """
-# Large Full-Screen Code Editor with Undo/Reset capability
+# Full Screen Code Editor with Save Button at the Top Header
 CODE_EDIT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -237,22 +237,21 @@ CODE_EDIT_TEMPLATE = """
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
         body { background: #1a153b; color: white; min-height: 100vh; display: flex; flex-direction: column; }
         
-        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #261e57; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .editor-title { font-size: 15px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 8px; }
+        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #261e57; padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 10px; }
+        .editor-title { font-size: 14px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 6px; }
         
-        .action-btns { display: flex; gap: 10px; }
-        .btn-top { padding: 6px 14px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 5px; }
+        .action-btns { display: flex; gap: 8px; }
+        .btn-top { padding: 8px 12px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 5px; }
         .btn-back { background: #4b5563; }
         .btn-reset { background: #d97706; }
         .btn-save { background: #10b981; }
 
         .editor-body { flex: 1; display: flex; flex-direction: column; padding: 10px; }
         
-        /* Full screen large code editor box */
         .code-area { 
             width: 100%; 
             flex: 1; 
-            min-height: 75vh; 
+            min-height: 82vh; 
             background: #0f0c24; 
             border: 1px solid rgba(255, 255, 255, 0.2); 
             border-radius: 12px; 
@@ -268,18 +267,17 @@ CODE_EDIT_TEMPLATE = """
     </style>
 </head>
 <body>
-    <div class="editor-header">
-        <div class="editor-title"><i class="fa-solid fa-code"></i> {{ bot['main_file'] }}</div>
-        <div class="action-btns">
-            <button type="button" class="btn-top btn-reset" onclick="resetCode()"><i class="fa-solid fa-rotate-left"></i> Revert</button>
-            <a href="/" class="btn-top btn-back"><i class="fa-solid fa-arrow-left"></i> Back</a>
-        </div>
-    </div>
-
     <form method="POST" class="editor-body">
-        <!-- Large full-screen textarea with original content saved for reset -->
+        <div class="editor-header">
+            <div class="editor-title"><i class="fa-solid fa-code"></i> {{ bot['main_file'] }}</div>
+            <div class="action-btns">
+                <button type="button" class="btn-top btn-reset" onclick="resetCode()"><i class="fa-solid fa-rotate-left"></i> Revert</button>
+                <button type="submit" class="btn-top btn-save"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                <a href="/" class="btn-top btn-back"><i class="fa-solid fa-arrow-left"></i> Back</a>
+            </div>
+        </div>
+
         <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false">{{ code_content }}</textarea>
-        <button type="submit" class="btn-top btn-save" style="margin-top: 10px; width: 100%; padding: 12px; justify-content: center; font-size: 15px;"><i class="fa-solid fa-floppy-disk"></i> Save & Restart Bot Live</button>
     </form>
 
     <script>
