@@ -17,7 +17,7 @@ DATABASE = os.path.join(BASE_DIR, 'platform.db')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Active processes dictionary: {bot_id: {'process': proc_obj, 'start_time': timestamp}}
+# Active processes dictionary: {bot_id: {'process': proc_obj, 'start_time': timestamp, 'log_file': log_file_path}}
 active_processes = {}
 
 def get_db():
@@ -96,7 +96,7 @@ HTML_TEMPLATE = """
         .btn-backup { background: #3b82f6; }
         .btn-del { background: #ef4444; }
 
-        .console-box { background: #020617; border-radius: 10px; padding: 10px 12px; font-family: 'Fira Code', monospace; font-size: 11px; color: #4ade80; max-height: 85px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(255,255,255,0.05); }
+        .console-box { background: #020617; border-radius: 10px; padding: 10px 12px; font-family: 'Fira Code', monospace; font-size: 11px; color: #4ade80; max-height: 120px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; word-break: break-all; }
 
         .restore-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; margin-top: 12px; }
     </style>
@@ -340,17 +340,46 @@ def index():
     bots = []
     for bot in db_bots:
         bot_dict = dict(bot)
-        if bot_dict['status'] == 'Running' and bot_dict['id'] in active_processes:
-            if active_processes[bot_dict['id']]['process'].poll() is not None:
-                cursor.execute('UPDATE bots SET status = "Stopped", start_timestamp = 0 WHERE id = ?', (bot_dict['id'],))
+        bot_id = bot_dict['id']
+        bot_dir = bot_dict['folder_path']
+        log_file_path = os.path.join(bot_dir, 'bot.log')
+
+        if bot_dict['status'] == 'Running':
+            is_alive = False
+            if bot_id in active_processes:
+                if active_processes[bot_id]['process'].poll() is None:
+                    is_alive = True
+
+            if not is_alive:
+                crash_log = "Bot stopped unexpectedly."
+                if os.path.exists(log_file_path):
+                    try:
+                        with open(log_file_path, 'r', encoding='utf-8') as lf:
+                            logs_content = lf.read().strip()
+                            if logs_content:
+                                crash_log = logs_content[-1000:]
+                    except Exception:
+                        pass
+
+                cursor.execute('UPDATE bots SET status = "Stopped", logs = ?, start_timestamp = 0 WHERE id = ?', (crash_log, bot_id))
                 conn.commit()
                 bot_dict['status'] = 'Stopped'
+                bot_dict['logs'] = crash_log
                 bot_dict['uptime_str'] = ''
             else:
-                start_ts = active_processes[bot_dict['id']]['start_time']
+                start_ts = active_processes[bot_id]['start_time']
                 bot_dict['uptime_str'] = format_uptime(start_ts)
+                if os.path.exists(log_file_path):
+                    try:
+                        with open(log_file_path, 'r', encoding='utf-8') as lf:
+                            logs_content = lf.read().strip()
+                            if logs_content:
+                                bot_dict['logs'] = logs_content[-1000:]
+                    except Exception:
+                        pass
         else:
             bot_dict['uptime_str'] = ''
+
         bots.append(bot_dict)
 
     conn.close()
@@ -404,14 +433,19 @@ def start_bot(bot_id):
     if bot:
         bot_dir = bot['folder_path']
         main_file = bot['main_file']
+        log_file_path = os.path.join(bot_dir, 'bot.log')
 
-        if bot_id not in active_processes or active_processes[bot_id]['process'].poll() is not None:
-            proc = subprocess.Popen([sys.executable, main_file], cwd=bot_dir)
-            current_time = time.time()
-            active_processes[bot_id] = {'process': proc, 'start_time': current_time}
+        if bot_id in active_processes and active_processes[bot_id]['process'].poll() is None:
+            active_processes[bot_id]['process'].terminate()
 
-            cursor.execute('UPDATE bots SET status = "Running", logs = "Bot is running live!", start_timestamp = ? WHERE id = ?', (current_time, bot_id))
-            conn.commit()
+        log_file = open(log_file_path, 'w', encoding='utf-8')
+        proc = subprocess.Popen([sys.executable, "-u", main_file], cwd=bot_dir, stdout=log_file, stderr=subprocess.STDOUT)
+        
+        current_time = time.time()
+        active_processes[bot_id] = {'process': proc, 'start_time': current_time, 'log_file': log_file}
+
+        cursor.execute('UPDATE bots SET status = "Running", logs = "Bot started live...", start_timestamp = ? WHERE id = ?', (current_time, bot_id))
+        conn.commit()
 
     conn.close()
     return redirect(url_for('index'))
@@ -419,7 +453,12 @@ def start_bot(bot_id):
 @app.route('/stop/<int:bot_id>')
 def stop_bot(bot_id):
     if bot_id in active_processes:
-        active_processes[bot_id]['process'].terminate()
+        proc_info = active_processes[bot_id]
+        proc_info['process'].terminate()
+        try:
+            proc_info['log_file'].close()
+        except Exception:
+            pass
         del active_processes[bot_id]
 
     conn = get_db()
@@ -460,8 +499,6 @@ def edit_code(bot_id):
 
     return render_template_string(CODE_EDIT_TEMPLATE, bot=bot, code_content=code_content, filename=bot['main_file'])
 
-# --- USER DATA, BACKUP & RESTORE ROUTES ---
-
 @app.route('/user_data/<int:bot_id>')
 def user_data(bot_id):
     conn = get_db()
@@ -475,7 +512,7 @@ def user_data(bot_id):
 
     bot_dir = bot['folder_path']
     files_list = []
-    
+
     if os.path.exists(bot_dir):
         for root, _, files in os.walk(bot_dir):
             for file in files:
@@ -531,7 +568,7 @@ def backup_bot(bot_id):
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, bot['folder_path'])
                 zf.write(full_path, rel_path)
-                
+
     memory_file.seek(0)
     zip_name = f"{bot['bot_name']}_backup.zip".replace(' ', '_')
     return send_file(memory_file, download_name=zip_name, as_attachment=True)
