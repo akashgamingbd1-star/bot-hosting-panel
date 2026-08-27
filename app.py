@@ -5,11 +5,13 @@ import subprocess
 import time
 import shutil
 import zipfile
+import secrets
 from io import BytesIO
-from flask import Flask, render_template_string, request, redirect, url_for, send_file, flash
+from flask import Flask, render_template_string, request, redirect, url_for, send_file, session, flash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = 'multi_bot_hosting_platform_2026_premium'
+app.secret_key = 'multi_bot_hosting_platform_2026_premium_sec_key'
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'user_bots')
@@ -17,7 +19,6 @@ DATABASE = os.path.join(BASE_DIR, 'platform.db')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Active processes dictionary: {bot_id: {'process': proc_obj, 'start_time': timestamp}}
 active_processes = {}
 
 def get_db():
@@ -28,23 +29,58 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            referral_code TEXT UNIQUE
+        )
+    ''')
+    
+    # Bots table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             bot_name TEXT NOT NULL,
             folder_path TEXT NOT NULL,
             main_file TEXT NOT NULL,
             status TEXT DEFAULT 'Stopped',
             logs TEXT DEFAULT 'Ready to run...',
-            start_timestamp REAL DEFAULT 0
+            start_timestamp REAL DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
     ''')
+    
+    # Global Settings table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    
+    # Default admin setting & Telegram URL
+    cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ('telegram_url', 'https://t.me/your_telegram_channel'))
+    
+    # Create default admin user if not exists (Username: admin, Password: adminpassword)
+    cursor.execute('SELECT * FROM users WHERE role = "admin"')
+    if not cursor.fetchone():
+        admin_pass = generate_password_hash('adminpassword')
+        admin_ref = secrets.token_hex(4)
+        cursor.execute('INSERT INTO users (username, password, role, referral_code) VALUES (?, ?, ?, ?)', 
+                       ('admin', admin_pass, 'admin', admin_ref))
+
     conn.commit()
     conn.close()
 
 init_db()
 
-HTML_TEMPLATE = """
+MAIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -55,12 +91,24 @@ HTML_TEMPLATE = """
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', sans-serif; }
         body { background: radial-gradient(circle at top left, #1e1b4b, #0f172a); color: #f8fafc; min-height: 100vh; padding: 25px 15px; }
-        
         .container { max-width: 550px; margin: 0 auto; }
         
+        /* Top Navigation Bar */
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-        .logo-icon { background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); }
-        
+        .nav-btns { display: flex; align-items: center; gap: 12px; }
+        .icon-btn { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: 0.3s; text-decoration: none; }
+        .icon-btn:hover { background: rgba(255, 255, 255, 0.2); transform: translateY(-2px); }
+        .logo-icon { background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); text-decoration: none; }
+
+        /* Navigation Sidebar/Drawer */
+        .drawer { position: fixed; top: 0; left: -300px; width: 300px; height: 100%; background: #0f172a; border-right: 1px solid rgba(255,255,255,0.1); z-index: 1000; transition: 0.3s ease; padding: 25px; box-shadow: 10px 0 30px rgba(0,0,0,0.5); }
+        .drawer.open { left: 0; }
+        .drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 999; display: none; }
+        .drawer-overlay.show { display: block; }
+        .close-drawer { text-align: right; font-size: 20px; cursor: pointer; color: #94a3b8; margin-bottom: 20px; }
+        .ref-box { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.2); margin-top: 15px; }
+        .ref-input { width: 100%; padding: 8px; background: #020617; border: 1px solid #334155; color: #38bdf8; font-size: 11px; border-radius: 6px; margin-top: 8px; outline: none; }
+
         .premium-banner { background: linear-gradient(135deg, rgba(124, 58, 237, 0.4), rgba(79, 70, 229, 0.4)); backdrop-filter: blur(12px); border-radius: 20px; padding: 22px; margin-bottom: 22px; text-align: center; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
         .premium-banner h2 { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #fff; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 10px; }
         .premium-banner p { font-size: 13px; color: #c7d2fe; }
@@ -68,27 +116,19 @@ HTML_TEMPLATE = """
         .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(16px); border-radius: 20px; padding: 22px; margin-bottom: 22px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
         .card-title { font-size: 17px; font-weight: 700; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; color: #f1f5f9; }
         
-        .input-box { width: 100%; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 12px 15px; color: white; margin-bottom: 14px; outline: none; font-size: 14px; transition: all 0.3s; }
-        .input-box:focus { border-color: #818cf8; box-shadow: 0 0 10px rgba(129, 140, 248, 0.3); }
-
+        .input-box { width: 100%; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 12px 15px; color: white; margin-bottom: 14px; outline: none; font-size: 14px; }
         .file-input-wrapper { margin-bottom: 12px; }
-        .btn-file { width: 100%; padding: 12px; background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.25); border-radius: 12px; color: #cbd5e1; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; transition: 0.3s; }
-        .btn-file:hover { background: rgba(255, 255, 255, 0.1); border-color: #a855f7; color: #fff; }
-
-        .btn-deploy { width: 100%; padding: 13px; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 15px; color: white; margin-top: 5px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); transition: 0.3s; }
-        .btn-deploy:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-file { width: 100%; padding: 12px; background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.25); border-radius: 12px; color: #cbd5e1; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; }
+        .btn-deploy { width: 100%; padding: 13px; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 15px; color: white; margin-top: 5px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
 
         .bot-card { background: rgba(15, 23, 42, 0.8); border-radius: 16px; padding: 18px; margin-bottom: 18px; border: 1px solid rgba(255, 255, 255, 0.08); }
         .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .bot-title { font-size: 16px; font-weight: 700; color: #ffffff; }
-        
-        .status-badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700; letter-spacing: 0.5px; }
+        .status-badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700; }
         .status-running { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
         .status-stopped { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
 
         .bot-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(75px, 1fr)); gap: 6px; margin-top: 14px; }
-        .btn-act { padding: 9px 5px; border-radius: 10px; border: none; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 4px; color: white; transition: 0.2s; }
-        .btn-act:hover { opacity: 0.85; transform: scale(0.98); }
+        .btn-act { padding: 9px 5px; border-radius: 10px; border: none; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 4px; color: white; }
         .btn-run { background: #10b981; }
         .btn-stop-bot { background: #f59e0b; }
         .btn-code-edit { background: #8b5cf6; }
@@ -97,18 +137,47 @@ HTML_TEMPLATE = """
         .btn-del { background: #ef4444; }
 
         .console-box { background: #020617; border-radius: 10px; padding: 10px 12px; font-family: 'Fira Code', monospace; font-size: 11px; color: #4ade80; max-height: 85px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(255,255,255,0.05); }
-
-        .restore-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; margin-top: 12px; }
     </style>
 </head>
 <body>
 
+<div class="drawer-overlay" id="overlay" onclick="toggleDrawer()"></div>
+
+<!-- Navigation Drawer -->
+<div class="drawer" id="drawer">
+    <div class="close-drawer" onclick="toggleDrawer()"><i class="fa-solid fa-xmark"></i></div>
+    <h3><i class="fa-solid fa-bars" style="color:#a855f7;"></i> Navigation</h3>
+    <p style="font-size: 12px; color: #94a3b8; margin-top: 5px;">Logged in as: <b>{{ current_user }}</b></p>
+    
+    {% if is_admin %}
+    <div class="ref-box">
+        <div style="font-size: 13px; font-weight: bold; color: #38bdf8;"><i class="fa-solid fa-share-nodes"></i> Admin Referral Link</div>
+        <p style="font-size: 10px; color: #94a3b8; margin-top: 4px;">শেয়ার করে ইউজার রেজিস্ট্রেশন করাতে পারবেন:</p>
+        <input type="text" readonly class="ref-input" value="{{ request.host_url }}register?ref={{ admin_ref_code }}">
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 25px;">
+        <a href="/logout" style="color: #ef4444; text-decoration: none; font-size: 14px; font-weight: bold;"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
+    </div>
+</div>
+
 <div class="container">
     <div class="header">
-        <div class="logo">
-            <div class="logo-icon"><i class="fa-solid fa-paper-plane"></i></div>
+        <div class="nav-btns">
+            <!-- 3 Lines Drawer Toggle -->
+            <button class="icon-btn" onclick="toggleDrawer()"><i class="fa-solid fa-bars"></i></button>
+            <i class="fa-solid fa-rotate-right" style="font-size: 18px; cursor: pointer; color: #94a3b8; margin-left: 5px;" onclick="location.reload()"></i>
         </div>
-        <i class="fa-solid fa-rotate-right" style="font-size: 20px; cursor: pointer; color: #94a3b8;" onclick="location.reload()"></i>
+        
+        <div class="nav-btns">
+            <!-- Admin Panel Button (If Admin) -->
+            {% if is_admin %}
+            <a href="/admin" class="icon-btn" title="Admin Panel" style="background: rgba(168, 85, 247, 0.2); border-color: #a855f7;"><i class="fa-solid fa-user-shield" style="color:#a855f7;"></i></a>
+            {% endif %}
+            <!-- Dynamic Telegram Link Logo -->
+            <a href="{{ telegram_url }}" target="_blank" class="logo-icon" title="Join Telegram"><i class="fa-paper-plane fa-brands"></i></a>
+        </div>
     </div>
 
     <div class="premium-banner">
@@ -119,7 +188,6 @@ HTML_TEMPLATE = """
     <!-- Upload Bot -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-cloud-arrow-up" style="color:#a855f7;"></i> Upload New Bot</div>
-        
         <form action="/upload" method="POST" enctype="multipart/form-data">
             <input type="text" name="bot_name" class="input-box" placeholder="বটের নাম লিখুন (যেমন: Bot One)" required>
             
@@ -135,39 +203,23 @@ HTML_TEMPLATE = """
 
             <button type="submit" class="btn-deploy">Save & Deploy Bot</button>
         </form>
-
-        <!-- Restore Section -->
-        <div class="restore-box">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #38bdf8;"><i class="fa-solid fa-rotate-left"></i> Restore Bot from Backup (.zip)</div>
-            <form action="/restore" method="POST" enctype="multipart/form-data" style="display: flex; gap: 8px;">
-                <input type="file" name="backup_zip" accept=".zip" required style="font-size: 11px; color: #94a3b8; width: 70%;">
-                <button type="submit" style="padding: 6px 12px; background: #0284c7; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 11px; cursor: pointer;">Restore</button>
-            </form>
-        </div>
     </div>
 
     <!-- Managed Bots -->
     <div class="card">
         <div class="card-title"><i class="fa-solid fa-server" style="color:#38bdf8;"></i> Managed Bots List</div>
-        
         {% if bots %}
             {% for bot in bots %}
             <div class="bot-card">
                 <div class="bot-header">
-                    <div class="bot-title"><i class="fa-solid fa-robot" style="color:#818cf8;"></i> {{ bot['bot_name'] }}</div>
+                    <div class="bot-title" style="font-weight: bold;"><i class="fa-solid fa-robot" style="color:#818cf8;"></i> {{ bot['bot_name'] }}</div>
                     {% if bot['status'] == 'Running' %}
                         <span class="status-badge status-running">● RUNNING</span>
                     {% else %}
                         <span class="status-badge status-stopped">○ STOPPED</span>
                     {% endif %}
                 </div>
-
                 <div style="font-size: 12px; color: #94a3b8;">Main File: {{ bot['main_file'] }}</div>
-                
-                {% if bot['status'] == 'Running' and bot['uptime_str'] %}
-                    <div style="font-size: 11px; color: #34d399; margin-top: 4px;"><i class="fa-solid fa-clock"></i> Uptime: {{ bot['uptime_str'] }}</div>
-                {% endif %}
-                
                 <div class="console-box">{{ bot['logs'] }}</div>
 
                 <div class="bot-actions">
@@ -179,193 +231,199 @@ HTML_TEMPLATE = """
                     <a href="/edit_code/{{ bot['id'] }}" class="btn-act btn-code-edit"><i class="fa-solid fa-code"></i> Code</a>
                     <a href="/user_data/{{ bot['id'] }}" class="btn-act btn-data"><i class="fa-solid fa-database"></i> Data</a>
                     <a href="/backup/{{ bot['id'] }}" class="btn-act btn-backup"><i class="fa-solid fa-download"></i> Backup</a>
-                    <a href="/delete/{{ bot['id'] }}" class="btn-act btn-del" onclick="return confirm('এই বটটি সম্পূর্ণ ডিলিট করতে চান?')"><i class="fa-solid fa-trash"></i> Del</a>
+                    <a href="/delete/{{ bot['id'] }}" class="btn-act btn-del" onclick="return confirm('ডিলিট করতে চান?')"><i class="fa-solid fa-trash"></i> Del</a>
                 </div>
             </div>
             {% endfor %}
         {% else %}
-            <div style="text-align: center; color: #64748b; font-size: 13px; padding: 20px;">
-                কোনো বট আপলোড করা হয়নি। ওপরের ফর্ম ব্যবহার করে বট যোগ করুন!
-            </div>
+            <div style="text-align: center; color: #64748b; font-size: 13px; padding: 15px;">কোনো বট পাওয়া যায়নি।</div>
         {% endif %}
     </div>
 </div>
 
 <script>
+function toggleDrawer() {
+    document.getElementById('drawer').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('show');
+}
 function updateLabel(input, labelId, defaultText) {
     const label = document.getElementById(labelId);
-    if (input.files.length > 0) {
-        label.innerText = "Selected: " + input.files[0].name;
-    } else {
-        label.innerText = defaultText;
-    }
+    if (input.files.length > 0) { label.innerText = "Selected: " + input.files[0].name; } 
+    else { label.innerText = defaultText; }
 }
 </script>
-
-</body>
-</html>
-"""
-CODE_EDIT_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="bn">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Code Editor - {{ bot['bot_name'] }}</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Fira Code', 'Courier New', monospace; }
-        body { background: #0b0f19; color: white; min-height: 100vh; display: flex; flex-direction: column; }
-        
-        .editor-header { display: flex; justify-content: space-between; align-items: center; background: #111827; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); font-family: sans-serif; }
-        .editor-title { font-size: 15px; font-weight: bold; color: #f3e8ff; display: flex; align-items: center; gap: 8px; }
-        
-        .action-btns { display: flex; gap: 10px; }
-        .btn-top { padding: 8px 14px; border-radius: 8px; border: none; font-weight: bold; font-size: 12px; cursor: pointer; text-decoration: none; color: white; display: flex; align-items: center; gap: 6px; }
-        .btn-back { background: #374151; }
-        .btn-save { background: #10b981; }
-
-        .editor-container { display: flex; flex: 1; background: #030712; margin: 12px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); }
-        .line-numbers { background: #0b0f19; color: #475569; padding: 15px 10px; text-align: right; font-size: 13px; line-height: 1.5; user-select: none; border-right: 1px solid rgba(255, 255, 255, 0.05); min-width: 45px; }
-        .code-area { width: 100%; flex: 1; background: transparent; border: none; padding: 15px; color: #38bdf8; font-size: 13px; line-height: 1.5; resize: none; outline: none; white-space: pre; overflow-x: auto; tab-size: 4; }
-    </style>
-</head>
-<body>
-    <form method="POST" style="display: flex; flex-direction: column; flex: 1;">
-        <div class="editor-header">
-            <div class="editor-title"><i class="fa-solid fa-code" style="color:#a855f7;"></i> Editing: {{ filename }}</div>
-            <div class="action-btns">
-                <button type="submit" class="btn-top btn-save"><i class="fa-solid fa-floppy-disk"></i> Save Code</button>
-                <a href="/" class="btn-top btn-back"><i class="fa-solid fa-arrow-left"></i> Back</a>
-            </div>
-        </div>
-
-        <div class="editor-container">
-            <div id="lineNumbers" class="line-numbers">1</div>
-            <textarea name="bot_code" id="codeArea" class="code-area" required spellcheck="false" oninput="updateLines()" onscroll="syncScroll()">{{ code_content }}</textarea>
-        </div>
-    </form>
-
-    <script>
-        const codeArea = document.getElementById('codeArea');
-        const lineNumbers = document.getElementById('lineNumbers');
-
-        function updateLines() {
-            const lines = codeArea.value.split('\\n').length;
-            let numbersStr = '';
-            for (let i = 1; i <= lines; i++) { numbersStr += i + '<br>'; }
-            lineNumbers.innerHTML = numbersStr;
-        }
-
-        function syncScroll() { lineNumbers.scrollTop = codeArea.scrollTop; }
-        codeArea.addEventListener('scroll', syncScroll);
-        window.onload = updateLines;
-    </script>
 </body>
 </html>
 """
 
-USER_DATA_TEMPLATE = """
+ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Data & File Manager</title>
+    <title>Admin Dashboard</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
-        body { background: #0f172a; color: white; padding: 20px; }
-        .container { max-width: 700px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; }
-        .file-list { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .file-item:last-child { border-bottom: none; }
-        .file-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 10px; color: #e2e8f0; }
-        .btn-view { padding: 6px 14px; background: #3b82f6; border-radius: 8px; color: white; text-decoration: none; font-size: 12px; font-weight: 600; }
-        .btn-back { padding: 8px 16px; background: #475569; border-radius: 8px; color: white; text-decoration: none; font-size: 13px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #0f172a; color: white; padding: 25px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+        h2 { font-size: 18px; margin-bottom: 15px; color: #a855f7; display: flex; align-items: center; gap: 10px; }
+        input[type="text"] { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: white; margin-bottom: 10px; }
+        .btn { padding: 10px 15px; background: #10b981; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; }
+        .btn-back { background: #475569; text-decoration: none; display: inline-block; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h3><i class="fa-solid fa-folder-open" style="color:#06b6d4;"></i> Files & User Data ({{ bot['bot_name'] }})</h3>
-            <a href="/" class="btn-back"><i class="fa-solid fa-arrow-left"></i> Back</a>
-        </div>
-
-        <div class="file-list">
-            {% if files %}
-                {% for file in files %}
-                <div class="file-item">
-                    <div class="file-name">
-                        <i class="fa-solid fa-file-code" style="color:#a855f7;"></i> {{ file['name'] }}
-                        <span style="font-size: 11px; color: #64748b;">({{ file['size'] }} KB)</span>
-                    </div>
-                    <a href="/edit_file/{{ bot['id'] }}?filename={{ file['name'] }}" class="btn-view">Edit / View Data</a>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div style="padding: 20px; text-align: center; color: #64748b;">কোনো ফাইল বা ডাটাবেস খুঁজে পাওয়া যায়নি।</div>
-            {% endif %}
+        <a href="/" class="btn btn-back"><i class="fa-solid fa-arrow-left"></i> Back to Home</a>
+        
+        <div class="card">
+            <h2><i class="fa-paper-plane fa-brands"></i> Update Telegram Link</h2>
+            <form method="POST" action="/admin/update_telegram">
+                <label style="font-size: 12px; color: #94a3b8;">লোগোতে ক্লিক করলে যে Telegram Link খুলবে:</label>
+                <input type="text" name="telegram_url" value="{{ telegram_url }}" required style="margin-top: 5px;">
+                <button type="submit" class="btn">Update Link</button>
+            </form>
         </div>
     </div>
 </body>
 </html>
 """
 
-def format_uptime(start_timestamp):
-    if not start_timestamp:
-        return ""
-    diff = int(time.time() - start_timestamp)
-    days = diff // 86400
-    hours = (diff % 86400) // 3600
-    minutes = (diff % 3600) // 60
-    seconds = diff % 60
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Hosting Panel</title>
+    <style>
+        body { background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }
+        .box { background: #1e293b; padding: 30px; border-radius: 16px; width: 320px; border: 1px solid rgba(255,255,255,0.1); }
+        input { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #6366f1; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2 style="text-align: center; margin-bottom: 20px;">Hosting Panel Login</h2>
+        <form method="POST" action="/login">
+            <input type="text" name="username" placeholder="Username" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Login</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
-    parts = []
-    if days > 0:
-        parts.append(f"{days}d")
-    if hours > 0 or days > 0:
-        parts.append(f"{hours}h")
-    parts.append(f"{minutes}m {seconds}s")
-    return " ".join(parts)
+# --- ROUTES & CONTROLLERS ---
 
 @app.route('/')
 def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots ORDER BY id DESC')
-    db_bots = cursor.fetchall()
 
+    # Telegram URL settings
+    cursor.execute('SELECT value FROM settings WHERE key = "telegram_url"')
+    tg_row = cursor.fetchone()
+    telegram_url = tg_row['value'] if tg_row else '#'
+
+    # Admin Info
+    cursor.execute('SELECT role, referral_code FROM users WHERE id = ?', (session['user_id'],))
+    user_data = cursor.fetchone()
+    is_admin = (user_data['role'] == 'admin')
+    admin_ref_code = user_data['referral_code'] if is_admin else ''
+
+    # Get User Bots
+    cursor.execute('SELECT * FROM bots WHERE user_id = ? ORDER BY id DESC', (session['user_id'],))
+    db_bots = cursor.fetchall()
+    
     bots = []
     for bot in db_bots:
         bot_dict = dict(bot)
         if bot_dict['status'] == 'Running' and bot_dict['id'] in active_processes:
             if active_processes[bot_dict['id']]['process'].poll() is not None:
-                cursor.execute('UPDATE bots SET status = "Stopped", start_timestamp = 0 WHERE id = ?', (bot_dict['id'],))
+                cursor.execute('UPDATE bots SET status = "Stopped" WHERE id = ?', (bot_dict['id'],))
                 conn.commit()
                 bot_dict['status'] = 'Stopped'
-                bot_dict['uptime_str'] = ''
-            else:
-                start_ts = active_processes[bot_dict['id']]['start_time']
-                bot_dict['uptime_str'] = format_uptime(start_ts)
-        else:
-            bot_dict['uptime_str'] = ''
         bots.append(bot_dict)
 
     conn.close()
-    return render_template_string(HTML_TEMPLATE, bots=bots)
+    return render_template_string(MAIN_TEMPLATE, bots=bots, telegram_url=telegram_url, is_admin=is_admin, admin_ref_code=admin_ref_code, current_user=session.get('username'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        conn.close()
+
+        if user and check_password_hash(user['password'], password):
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['role'] = user['role']
+            return redirect(url_for('index'))
+            
+    return render_template_string(LOGIN_TEMPLATE)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login_page'))
+
+# --- ADMIN ROUTES ---
+
+@app.route('/admin')
+def admin_panel():
+    if session.get('role') != 'admin':
+        return redirect(url_for('index'))
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM settings WHERE key = "telegram_url"')
+    tg_row = cursor.fetchone()
+    telegram_url = tg_row['value'] if tg_row else ''
+    conn.close()
+
+    return render_template_string(ADMIN_TEMPLATE, telegram_url=telegram_url)
+
+@app.route('/admin/update_telegram', methods=['POST'])
+def update_telegram():
+    if session.get('role') != 'admin':
+        return redirect(url_for('index'))
+
+    new_url = request.form.get('telegram_url')
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ("telegram_url", ?)', (new_url,))
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for('admin_panel'))
+
+# --- BOT MANAGEMENT ---
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+
     bot_name = request.form.get('bot_name')
     bot_file = request.files.get('bot_file')
-    req_file = request.files.get('req_file')
 
     if not bot_file or not bot_file.filename:
         return redirect(url_for('index'))
 
-    folder_name = f"bot_{int(time.time())}_{bot_name.replace(' ', '_')}"
+    folder_name = f"bot_{session['user_id']}_{int(time.time())}"
     bot_dir = os.path.join(UPLOAD_FOLDER, folder_name)
     os.makedirs(bot_dir, exist_ok=True)
 
@@ -373,22 +431,10 @@ def upload():
     main_path = os.path.join(bot_dir, main_filename)
     bot_file.save(main_path)
 
-    log_msg = "Files uploaded successfully.\n"
-
-    if req_file and req_file.filename:
-        req_path = os.path.join(bot_dir, 'requirements.txt')
-        req_file.save(req_path)
-        try:
-            log_msg += "Installing requirements...\n"
-            subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_path], capture_output=True, text=True)
-            log_msg += "Packages installed successfully!\n"
-        except Exception as e:
-            log_msg += f"Install error: {str(e)}\n"
-
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO bots (bot_name, folder_path, main_file, status, logs, start_timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-                   (bot_name, bot_dir, main_filename, 'Stopped', log_msg + "Ready to Run.", 0))
+    cursor.execute('INSERT INTO bots (user_id, bot_name, folder_path, main_file, status, logs) VALUES (?, ?, ?, ?, ?, ?)',
+                   (session['user_id'], bot_name, bot_dir, main_filename, 'Stopped', "Ready to Run."))
     conn.commit()
     conn.close()
 
@@ -396,22 +442,18 @@ def upload():
 
 @app.route('/start/<int:bot_id>')
 def start_bot(bot_id):
+    if 'user_id' not in session: return redirect(url_for('login_page'))
+    
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
+    cursor.execute('SELECT * FROM bots WHERE id = ? AND user_id = ?', (bot_id, session['user_id']))
     bot = cursor.fetchone()
 
     if bot:
-        bot_dir = bot['folder_path']
-        main_file = bot['main_file']
-
-        if bot_id not in active_processes or active_processes[bot_id]['process'].poll() is not None:
-            proc = subprocess.Popen([sys.executable, main_file], cwd=bot_dir)
-            current_time = time.time()
-            active_processes[bot_id] = {'process': proc, 'start_time': current_time}
-
-            cursor.execute('UPDATE bots SET status = "Running", logs = "Bot is running live!", start_timestamp = ? WHERE id = ?', (current_time, bot_id))
-            conn.commit()
+        proc = subprocess.Popen([sys.executable, bot['main_file']], cwd=bot['folder_path'])
+        active_processes[bot_id] = {'process': proc, 'start_time': time.time()}
+        cursor.execute('UPDATE bots SET status = "Running", logs = "Bot is running live!" WHERE id = ?', (bot_id,))
+        conn.commit()
 
     conn.close()
     return redirect(url_for('index'))
@@ -424,164 +466,22 @@ def stop_bot(bot_id):
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('UPDATE bots SET status = "Stopped", logs = "Bot stopped by user.", start_timestamp = 0 WHERE id = ?', (bot_id,))
+    cursor.execute('UPDATE bots SET status = "Stopped", logs = "Bot stopped by user." WHERE id = ?', (bot_id,))
     conn.commit()
     conn.close()
-
-    return redirect(url_for('index'))
-
-@app.route('/edit_code/<int:bot_id>', methods=['GET', 'POST'])
-def edit_code(bot_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
-    bot = cursor.fetchone()
-    conn.close()
-
-    if not bot:
-        return redirect(url_for('index'))
-
-    file_path = os.path.join(bot['folder_path'], bot['main_file'])
-
-    if request.method == 'POST':
-        new_code = request.form.get('bot_code')
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(new_code)
-
-        if bot['status'] == 'Running':
-            stop_bot(bot_id)
-
-        return redirect(url_for('index'))
-
-    code_content = ""
-    if os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            code_content = f.read()
-
-    return render_template_string(CODE_EDIT_TEMPLATE, bot=bot, code_content=code_content, filename=bot['main_file'])
-
-# --- USER DATA, BACKUP & RESTORE ROUTES ---
-
-@app.route('/user_data/<int:bot_id>')
-def user_data(bot_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
-    bot = cursor.fetchone()
-    conn.close()
-
-    if not bot:
-        return redirect(url_for('index'))
-
-    bot_dir = bot['folder_path']
-    files_list = []
-    
-    if os.path.exists(bot_dir):
-        for root, _, files in os.walk(bot_dir):
-            for file in files:
-                rel_path = os.path.relpath(os.path.join(root, file), bot_dir)
-                full_path = os.path.join(root, file)
-                size_kb = round(os.path.getsize(full_path) / 1024, 2)
-                files_list.append({'name': rel_path, 'size': size_kb})
-
-    return render_template_string(USER_DATA_TEMPLATE, bot=bot, files=files_list)
-
-@app.route('/edit_file/<int:bot_id>', methods=['GET', 'POST'])
-def edit_file(bot_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
-    bot = cursor.fetchone()
-    conn.close()
-
-    filename = request.args.get('filename', bot['main_file'])
-    file_path = os.path.join(bot['folder_path'], filename)
-
-    if request.method == 'POST':
-        new_code = request.form.get('bot_code')
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(new_code)
-        return redirect(url_for('user_data', bot_id=bot_id))
-
-    code_content = ""
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                code_content = f.read()
-        except Exception:
-            code_content = "[Binary/Database File - Cannot edit directly as text]"
-
-    return render_template_string(CODE_EDIT_TEMPLATE, bot=bot, code_content=code_content, filename=filename)
-
-@app.route('/backup/<int:bot_id>')
-def backup_bot(bot_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM bots WHERE id = ?', (bot_id,))
-    bot = cursor.fetchone()
-    conn.close()
-
-    if not bot or not os.path.exists(bot['folder_path']):
-        return redirect(url_for('index'))
-
-    memory_file = BytesIO()
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(bot['folder_path']):
-            for file in files:
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, bot['folder_path'])
-                zf.write(full_path, rel_path)
-                
-    memory_file.seek(0)
-    zip_name = f"{bot['bot_name']}_backup.zip".replace(' ', '_')
-    return send_file(memory_file, download_name=zip_name, as_attachment=True)
-
-@app.route('/restore', methods=['POST'])
-def restore_bot():
-    backup_file = request.files.get('backup_zip')
-    if not backup_file or not backup_file.filename.endswith('.zip'):
-        return redirect(url_for('index'))
-
-    bot_name = os.path.splitext(backup_file.filename)[0].replace('_backup', '')
-    folder_name = f"bot_{int(time.time())}_{bot_name}"
-    bot_dir = os.path.join(UPLOAD_FOLDER, folder_name)
-    os.makedirs(bot_dir, exist_ok=True)
-
-    with zipfile.ZipFile(backup_file, 'r') as zf:
-        zf.extractall(bot_dir)
-
-    main_file = "main.py"
-    files_in_dir = os.listdir(bot_dir)
-    py_files = [f for f in files_in_dir if f.endswith('.py')]
-    if py_files:
-        main_file = py_files[0]
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO bots (bot_name, folder_path, main_file, status, logs, start_timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-                   (bot_name.replace('_', ' '), bot_dir, main_file, 'Stopped', 'Restored from Backup zip.', 0))
-    conn.commit()
-    conn.close()
-
     return redirect(url_for('index'))
 
 @app.route('/delete/<int:bot_id>')
 def delete_bot(bot_id):
     stop_bot(bot_id)
-
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT folder_path FROM bots WHERE id = ?', (bot_id,))
+    cursor.execute('SELECT folder_path FROM bots WHERE id = ? AND user_id = ?', (bot_id, session['user_id']))
     bot = cursor.fetchone()
-
     if bot:
-        bot_dir = bot['folder_path']
-        if os.path.exists(bot_dir):
-            shutil.rmtree(bot_dir, ignore_errors=True)
-
+        shutil.rmtree(bot['folder_path'], ignore_errors=True)
         cursor.execute('DELETE FROM bots WHERE id = ?', (bot_id,))
         conn.commit()
-
     conn.close()
     return redirect(url_for('index'))
 
